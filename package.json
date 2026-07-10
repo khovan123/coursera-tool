@@ -1,0 +1,12 @@
+{
+  "name": "coursera-tool",
+  "version": "2.0.0",
+  "private": true,
+  "workspaces": [
+    "apps/extension"
+  ],
+  "scripts": {
+    "build": "npm run build --workspace @coursera-tool/extension",
+    "check": "npm run check --workspace @coursera-tool/extension"
+  }
+}

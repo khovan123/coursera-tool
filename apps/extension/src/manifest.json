@@ -1,0 +1,29 @@
+{
+  "name": "Coursera Tool",
+  "description": "Automatically advances course videos and assists with Coursera assessments.",
+  "version": "2.0.0",
+  "manifest_version": 3,
+  "action": {
+    "default_popup": "popup/index.html"
+  },
+  "background": {
+    "service_worker": "background/service-worker.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://coursera.org/*",
+        "https://*.coursera.org/*"
+      ],
+      "js": ["content/coursera.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "permissions": ["storage", "tabs", "scripting"],
+  "host_permissions": [
+    "https://coursera.org/*",
+    "https://*.coursera.org/*",
+    "https://generativelanguage.googleapis.com/*"
+  ]
+}

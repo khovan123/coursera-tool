@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Coursera Tool</title>
+    <style>
+      :root {
+        color-scheme: light;
+        font-family: Arial, Helvetica, sans-serif;
+        color: #17202a;
+        background: #f4f6f8;
+      }
+
+      * { box-sizing: border-box; }
+      body { margin: 0; }
+      main { width: min(760px, calc(100% - 32px)); margin: 48px auto; }
+      header { border-bottom: 1px solid #cfd6de; padding-bottom: 24px; }
+      h1 { margin: 0 0 8px; font-size: 30px; letter-spacing: 0; }
+      h2 { margin: 0 0 12px; font-size: 18px; letter-spacing: 0; }
+      p { margin: 0; color: #52606d; line-height: 1.6; }
+      section { padding: 24px 0; border-bottom: 1px solid #cfd6de; }
+      ul { margin: 0; padding-left: 20px; color: #364554; line-height: 1.8; }
+      code { padding: 2px 5px; border-radius: 4px; background: #e6ebf0; }
+      .notice { margin-top: 18px; border-left: 4px solid #175cd3; padding: 10px 14px; background: #fff; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <h1>Coursera Tool</h1>
+        <p>Browser extension chạy cục bộ để tự động phát video và hỗ trợ điền assessment.</p>
+        <p class="notice">Dự án không có thanh toán, subscription hoặc pay-as-you-go.</p>
+      </header>
+
+      <section>
+        <h2>Cách chạy</h2>
+        <ul>
+          <li>Chạy <code>npm run build</code> tại thư mục gốc của dự án.</li>
+          <li>Mở <code>chrome://extensions</code> và bật Developer mode.</li>
+          <li>Load unpacked thư mục <code>apps/extension/dist</code>.</li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>Kết nối mạng</h2>
+        <ul>
+          <li>Coursera: content script chỉ thao tác trên trang đang mở.</li>
+          <li>Gemini API: chỉ được gọi khi người dùng yêu cầu tạo câu trả lời.</li>
+          <li>Không có payment API, quảng cáo hoặc analytics.</li>
+        </ul>
+      </section>
+    </main>
+  </body>
+</html>
