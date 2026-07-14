@@ -23,21 +23,50 @@
       ul { margin: 0; padding-left: 20px; color: #364554; line-height: 1.8; }
       code { padding: 2px 5px; border-radius: 4px; background: #e6ebf0; }
       .notice { margin-top: 18px; border-left: 4px solid #175cd3; padding: 10px 14px; background: #fff; }
+      .actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 18px; }
+      .button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 42px;
+        padding: 0 16px;
+        border-radius: 6px;
+        background: #175cd3;
+        color: #fff;
+        font-weight: 700;
+        text-decoration: none;
+      }
+      .button.secondary { border: 1px solid #9aa6b2; background: #fff; color: #17202a; }
+      .status { margin-top: 10px; font-size: 14px; }
     </style>
   </head>
   <body>
     <main>
       <header>
         <h1>Coursera Tool</h1>
-        <p>Browser extension chạy cục bộ để tự động phát video và hỗ trợ điền assessment.</p>
+        <p>Browser extension chạy cục bộ để tự động phát video và có thể mở quiz cho người dùng làm thủ công.</p>
         <p class="notice">Dự án không có thanh toán, subscription hoặc pay-as-you-go.</p>
+        <div class="actions">
+          <a id="downloadLatest" class="button" href="https://github.com/khovan123/coursera-tool/releases/latest" rel="noopener">Tải bản mới nhất</a>
+          <a class="button secondary" href="https://github.com/khovan123/coursera-tool" rel="noopener">Xem mã nguồn</a>
+        </div>
+        <p id="releaseStatus" class="status">Đang kiểm tra release mới nhất...</p>
       </header>
 
       <section>
-        <h2>Cách chạy</h2>
+        <h2>Cài từ file release</h2>
         <ul>
-          <li>Chạy <code>npm run build</code> tại thư mục gốc của dự án.</li>
+          <li>Bấm <strong>Tải bản mới nhất</strong> để tải file zip từ GitHub Release.</li>
+          <li>Giải nén file zip vừa tải.</li>
           <li>Mở <code>chrome://extensions</code> và bật Developer mode.</li>
+          <li>Chọn <strong>Load unpacked</strong> và trỏ tới thư mục đã giải nén.</li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>Build thủ công</h2>
+        <ul>
+          <li>Clone repository và chạy <code>npm run build</code> tại thư mục gốc.</li>
           <li>Load unpacked thư mục <code>apps/extension/dist</code>.</li>
         </ul>
       </section>
@@ -46,10 +75,29 @@
         <h2>Kết nối mạng</h2>
         <ul>
           <li>Coursera: content script chỉ thao tác trên trang đang mở.</li>
-          <li>Gemini API: chỉ được gọi khi người dùng yêu cầu tạo câu trả lời.</li>
+          <li>Không gọi dịch vụ AI để tạo câu trả lời.</li>
           <li>Không có payment API, quảng cáo hoặc analytics.</li>
         </ul>
       </section>
     </main>
+    <script>
+      const downloadLink = document.querySelector("#downloadLatest");
+      const releaseStatus = document.querySelector("#releaseStatus");
+
+      fetch("https://api.github.com/repos/khovan123/coursera-tool/releases/latest")
+        .then((response) => {
+          if (!response.ok) throw new Error("No release found");
+          return response.json();
+        })
+        .then((release) => {
+          const asset = release.assets.find((item) => item.name.endsWith(".zip"));
+          if (!asset) throw new Error("No zip asset found");
+          downloadLink.href = asset.browser_download_url;
+          releaseStatus.textContent = `Release mới nhất: ${release.tag_name} (${asset.name})`;
+        })
+        .catch(() => {
+          releaseStatus.textContent = "Chưa tìm thấy file zip release. Mở trang release để kiểm tra thủ công.";
+        });
+    </script>
   </body>
 </html>

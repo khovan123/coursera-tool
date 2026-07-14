@@ -1,0 +1,77 @@
+name: Build Extension Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release tag, for example v2.0.0"
+        required: true
+        default: "v2.0.0"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Check source
+        run: npm run check
+
+      - name: Build extension
+        run: npm run build
+
+      - name: Package extension
+        id: package
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${{ github.event.inputs.version || github.ref_name }}"
+          ASSET_NAME="coursera-tool-extension-${VERSION}.zip"
+          cd apps/extension/dist
+          zip -r "../../../${ASSET_NAME}" .
+          cd ../../..
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "asset=${ASSET_NAME}" >> "$GITHUB_OUTPUT"
+
+      - name: Create tag for manual release
+        if: github.event_name == 'workflow_dispatch'
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.package.outputs.version }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if ! git rev-parse --verify --quiet "refs/tags/${VERSION}"; then
+            git tag "${VERSION}"
+            git push origin "${VERSION}"
+          fi
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.package.outputs.version }}"
+          ASSET="${{ steps.package.outputs.asset }}"
+          TITLE="Coursera Tool ${VERSION}"
+          NOTES="Build extension Chrome MV3. Download the zip, extract it, then load the extracted folder from chrome://extensions."
+          if gh release view "${VERSION}" >/dev/null 2>&1; then
+            gh release upload "${VERSION}" "${ASSET}" --clobber
+          else
+            gh release create "${VERSION}" "${ASSET}" --title "${TITLE}" --notes "${NOTES}"
+          fi
