@@ -3,15 +3,12 @@ const DEFAULTS = {
   runnerActive: false,
   skipVideo: true,
   playbackRate: 16,
-  autoSubmit: false,
-  geminiApiKey: "",
-  geminiModel: "gemini-2.5-flash",
+  autoOpenQuiz: false,
 };
 
-const ids = ["enabled", "skipVideo", "playbackRate", "autoSubmit", "geminiApiKey", "geminiModel"];
+const ids = ["enabled", "skipVideo", "playbackRate", "autoOpenQuiz"];
 const controls = Object.fromEntries(ids.map((id) => [id, document.getElementById(id)]));
 const status = document.getElementById("status");
-const run = document.getElementById("run");
 const runner = document.getElementById("runner");
 
 load();
@@ -56,28 +53,11 @@ async function save(event) {
   status.textContent = "Settings saved";
 }
 
-run.addEventListener("click", async () => {
-  run.disabled = true;
-  status.textContent = "Starting assessment assistant...";
-  try {
-    const tab = await activeTab();
-    const response = await sendToTab(tab, { type: "COURSE_TOOL_ANSWER" });
-    if (!response?.ok) throw new Error(response?.error || "The page did not accept the request.");
-    await refreshStatus();
-  } catch (error) {
-    status.dataset.level = "error";
-    status.textContent = error.message;
-  } finally {
-    run.disabled = false;
-  }
-});
-
 async function refreshStatus() {
   try {
     const tab = await activeTab();
     if (!isCourseraUrl(tab.url)) {
       status.textContent = "Open a Coursera course page";
-      run.disabled = true;
       runner.disabled = true;
       return;
     }

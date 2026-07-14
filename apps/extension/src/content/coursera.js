@@ -3,7 +3,7 @@ const DEFAULTS = {
   runnerActive: false,
   skipVideo: true,
   playbackRate: 16,
-  autoSubmit: false,
+  autoOpenQuiz: false,
 };
 
 const ASSESSMENT_PATH = /\/(quiz|exam|assignment(?:-submission)?|peer|programming|assessment)(\/|$)/i;
@@ -16,10 +16,11 @@ const state = {
   processedMedia: new WeakSet(),
   skippedMedia: new WeakSet(),
   advancedMedia: new WeakSet(),
-  assessmentKey: "",
   actionTimer: null,
   actionKind: null,
   lastActionAt: 0,
+  lastAdvanceUrl: "",
+  advanceAttempts: 0,
   externalActivityUrl: "",
   externalActivityRetries: 0,
   busy: false,
@@ -53,13 +54,6 @@ async function init() {
         .catch((error) => sendResponse({ ok: false, error: error.message }));
       return true;
     }
-    if (message?.type === "COURSE_TOOL_ANSWER") {
-      runAssessment(true).then(() => sendResponse({ ok: true })).catch((error) => {
-        setStatus(error.message, "error");
-        sendResponse({ ok: false, error: error.message });
-      });
-      return true;
-    }
     return false;
   });
 
@@ -74,6 +68,7 @@ async function init() {
 
 function scanPage() {
   if (!state.settings.enabled || !state.settings.runnerActive || state.busy) return;
+  resetAdvanceAttemptsAfterNavigation();
 
   const mediaElements = [...document.querySelectorAll("video, audio")];
   if (mediaElements.length) {
@@ -82,8 +77,17 @@ function scanPage() {
     return;
   }
 
+  if (LOCKED_BROWSER_PATH.test(location.pathname)) {
+    pauseRunnerForManualAssessment("Locked-browser assessment detected; complete it manually.");
+    return;
+  }
+
   if (ASSESSMENT_PATH.test(location.pathname)) {
-    queueRunnerAction(clickNextItem, 1200, "Skipping assessment item");
+    if (isProctoredAssessment()) {
+      pauseRunnerForManualAssessment("Proctored assessment detected; complete it manually.");
+      return;
+    }
+    handleAssessmentItem("Assessment opened; complete it manually.");
     return;
   }
 
@@ -92,8 +96,8 @@ function scanPage() {
     return;
   }
 
-  if (collectQuestions().length) {
-    queueRunnerAction(clickNextItem, 1200, "Skipping assessment item");
+  if (hasAssessmentControls()) {
+    handleAssessmentItem("Assessment detected; complete it manually.");
     return;
   }
 
@@ -325,11 +329,28 @@ function clickNextItem() {
       && !element.closest('form, [data-testid*="question"]');
   });
   const candidate = direct || fallback;
-  if (clickRunnerTarget(candidate)) {
-    setStatus("Advanced to the next course item");
-    return true;
+  if (!candidate) return openNextCourseItem();
+
+  const current = currentCourseUrl();
+  if (candidate instanceof HTMLAnchorElement && normalizeCourseUrl(candidate.href) === current) {
+    return openNextCourseItem();
   }
-  return openNextCourseItem();
+
+  if (state.lastAdvanceUrl !== location.href) {
+    state.lastAdvanceUrl = location.href;
+    state.advanceAttempts = 0;
+  }
+
+  if (state.advanceAttempts >= 3) {
+    stopCourseRunner("Course runner stopped because the next item did not open.");
+    return false;
+  }
+
+  if (!clickRunnerTarget(candidate)) return false;
+
+  state.advanceAttempts += 1;
+  setStatus("Advanced to the next course item");
+  return true;
 }
 
 function skipMediaToEnd(media) {
@@ -349,34 +370,68 @@ function finishMedia(media) {
 }
 
 function openNextCourseItem() {
-  const current = `${location.origin}${location.pathname}`.replace(/\/$/, "");
-  const links = [...document.querySelectorAll('a[href*="/learn/"]')].filter((link) => {
-    const url = new URL(link.href);
-    const href = `${url.origin}${url.pathname}`.replace(/\/$/, "");
-    return isActionable(link)
-      && href !== current
-      && LEARNING_ITEM_PATH.test(url.pathname)
-      && !ASSESSMENT_PATH.test(url.pathname)
-      && !isCompletedItem(link);
-  });
+  const nextLink = findNextCourseItemLink();
 
-  if (clickRunnerTarget(links[0])) {
-    setStatus("Opened the next incomplete lesson");
+  if (clickRunnerTarget(nextLink)) {
+    setStatus("Opened the next incomplete course item");
     return true;
   }
 
-  const moduleToggle = [...document.querySelectorAll('button[aria-expanded="false"]')].find((button) => {
-    const text = normalizeText(button.innerText || button.getAttribute("aria-label") || "");
-    return isActionable(button) && /(module|week|tuần|lesson|bài)/i.test(text);
-  });
+  const moduleToggle = findNextModuleToggle();
   if (clickRunnerTarget(moduleToggle)) {
     setStatus("Opened the next course module");
     queueRunnerAction(openNextCourseItem, 700);
     return true;
   }
 
-  setStatus("No incomplete lesson or Next button was found.");
+  stopCourseRunner("Course runner stopped: no next course item was found.");
   return false;
+}
+
+function findNextCourseItemLink() {
+  const current = currentCourseUrl();
+  const links = uniqueCourseLinks([...document.querySelectorAll('a[href*="/learn/"]')]);
+  const currentIndex = links.findIndex((link) => normalizeCourseUrl(link.href) === current);
+  const candidates = currentIndex >= 0 ? links.slice(currentIndex + 1) : links;
+
+  return candidates.find((link) => {
+    const url = new URL(link.href, location.href);
+    return isActionable(link)
+      && isRunnableCourseItemPath(url.pathname)
+      && !isCompletedItem(link);
+  });
+}
+
+function findNextModuleToggle() {
+  const toggles = [...document.querySelectorAll('button[aria-expanded="false"]')]
+    .filter(isCourseModuleToggle);
+  const currentLink = findCurrentCourseLink();
+  if (!currentLink) return toggles[0];
+
+  return toggles.find((toggle) => (
+    currentLink.compareDocumentPosition(toggle) & Node.DOCUMENT_POSITION_FOLLOWING
+  ));
+}
+
+function findCurrentCourseLink() {
+  const current = currentCourseUrl();
+  return [...document.querySelectorAll('a[href*="/learn/"]')]
+    .find((link) => normalizeCourseUrl(link.href) === current);
+}
+
+function isCourseModuleToggle(button) {
+  const text = normalizeText(button.innerText || button.getAttribute("aria-label") || "");
+  return isActionable(button) && /(module|week|tuần|lesson|bài)/i.test(text);
+}
+
+function uniqueCourseLinks(links) {
+  const seen = new Set();
+  return links.filter((link) => {
+    const href = normalizeCourseUrl(link.href);
+    if (seen.has(href)) return false;
+    seen.add(href);
+    return true;
+  });
 }
 
 function isCompletedItem(link) {
@@ -418,40 +473,44 @@ async function setRunnerActive(active) {
     setStatus("Course runner paused");
     return;
   }
+  state.lastAdvanceUrl = "";
+  state.advanceAttempts = 0;
   setStatus("Course runner started");
   scanPage();
 }
 
-async function runAssessment(force) {
-  if (state.busy || !state.settings.enabled) return;
-  if (isProctoredAssessment()) {
-    throw new Error("Proctored assessment detected. Use Coursera's locking browser and complete this assessment manually.");
-  }
-  const questions = collectQuestions();
-  if (!questions.length) {
-    if (force) throw new Error("No assessment questions were found on this page.");
+function pauseRunnerForManualAssessment(message) {
+  stopCourseRunner(message);
+}
+
+function handleAssessmentItem(manualMessage) {
+  if (state.settings.autoOpenQuiz) {
+    pauseRunnerForManualAssessment(manualMessage);
     return;
   }
-  const key = `${location.href}|${questions.map((question) => question.prompt).join("|")}`;
-  if (!force && state.assessmentKey === key) return;
+  queueRunnerAction(openNextCourseItem, 900, "Skipping assessment; looking for the next lesson");
+}
 
-  await setRunnerActive(false);
-  state.busy = true;
-  state.assessmentKey = key;
-  setStatus(`Answering ${questions.length} question${questions.length === 1 ? "" : "s"}...`);
-  try {
-    const response = await chrome.runtime.sendMessage({
-      type: "COURSE_TOOL_ASK_AI",
-      payload: { title: document.title, questions },
-    });
-    if (!response?.ok) throw new Error(response?.error || "Could not obtain answers.");
-    const filled = applyAnswers(response.answer?.answers || [], questions);
-    if (!filled) throw new Error("Answers were returned, but no matching inputs were found.");
-    setStatus(`Filled ${filled} answer${filled === 1 ? "" : "s"}`);
-    if (state.settings.autoSubmit) setTimeout(clickSubmit, 500);
-  } finally {
-    state.busy = false;
-  }
+function stopCourseRunner(message) {
+  state.settings.runnerActive = false;
+  clearRunnerTimer();
+  chrome.storage.local.set({ runnerActive: false }).catch(() => {});
+  setStatus(message);
+}
+
+function resetAdvanceAttemptsAfterNavigation() {
+  if (!state.lastAdvanceUrl || state.lastAdvanceUrl === location.href) return;
+  state.lastAdvanceUrl = location.href;
+  state.advanceAttempts = 0;
+}
+
+function currentCourseUrl() {
+  return normalizeCourseUrl(location.href);
+}
+
+function normalizeCourseUrl(value) {
+  const url = new URL(value, location.href);
+  return `${url.origin}${url.pathname}`.replace(/\/$/, "");
 }
 
 function isProctoredAssessment() {
@@ -466,24 +525,12 @@ function isProctoredAssessment() {
     )));
 }
 
-function collectQuestions() {
-  const roots = findQuestionRoots();
-  return roots.map((root, index) => {
-    const controls = [...root.querySelectorAll('input[type="radio"], input[type="checkbox"], textarea, input[type="text"], [contenteditable="true"]')];
-    const choiceControls = controls.filter((control) => control.matches('input[type="radio"], input[type="checkbox"]'));
-    const promptNode = root.querySelector('legend, [data-testid*="question"], [class*="question"], h2, h3');
-    return {
-      id: `q${index + 1}`,
-      prompt: normalizeText(promptNode?.innerText || root.innerText.split("\n").slice(0, 4).join(" ")),
-      type: choiceControls.length ? "choice" : "text",
-      choices: choiceControls.map((control) => choiceLabel(control, root)).filter(Boolean),
-      _root: root,
-      _controls: controls,
-    };
-  }).filter((question) => question.prompt && question._controls.length);
+function isRunnableCourseItemPath(pathname) {
+  if (LEARNING_ITEM_PATH.test(pathname) || EXTERNAL_ACTIVITY_PATH.test(pathname)) return true;
+  return state.settings.autoOpenQuiz && ASSESSMENT_PATH.test(pathname) && !LOCKED_BROWSER_PATH.test(pathname);
 }
 
-function findQuestionRoots() {
+function hasAssessmentControls() {
   const selectors = [
     '[data-testid*="question-container"]',
     '[data-testid*="quiz-question"]',
@@ -492,62 +539,9 @@ function findQuestionRoots() {
   ];
   for (const selector of selectors) {
     const roots = [...document.querySelectorAll(selector)].filter((root) => root.querySelector("input, textarea, [contenteditable=true]"));
-    if (roots.length) return roots.filter((root) => !roots.some((other) => other !== root && other.contains(root)));
+    if (roots.length) return true;
   }
-  return [];
-}
-
-function applyAnswers(answers, questions) {
-  let count = 0;
-  for (const answer of answers) {
-    const question = questions.find((item) => item.id === answer.id);
-    if (!question) continue;
-    if (question.type === "choice") {
-      for (const wanted of answer.choices || []) {
-        const control = question._controls.find((item) => item.matches('input[type="radio"], input[type="checkbox"]') && similar(choiceLabel(item, question._root), wanted));
-        if (control && !control.checked) {
-          control.click();
-          count += 1;
-        }
-      }
-    } else if (answer.text) {
-      const control = question._controls.find((item) => item.matches('textarea, input[type="text"], [contenteditable="true"]'));
-      if (control) {
-        setNativeValue(control, answer.text);
-        count += 1;
-      }
-    }
-  }
-  return count;
-}
-
-function clickSubmit() {
-  const buttons = [...document.querySelectorAll('button, input[type="submit"]')];
-  const submit = buttons.find((button) => isActionable(button) && /^(submit|check|grade)(\s|$)/i.test(normalizeText(button.innerText || button.value)));
-  if (submit) {
-    submit.click();
-    setStatus("Assessment submitted");
-  } else {
-    setStatus("Answers filled; submit button was not found.");
-  }
-}
-
-function choiceLabel(control, root) {
-  const label = control.id ? root.querySelector(`label[for="${CSS.escape(control.id)}"]`) : control.closest("label");
-  return normalizeText(label?.innerText || control.parentElement?.innerText || control.value);
-}
-
-function setNativeValue(control, value) {
-  if (control.isContentEditable) {
-    control.focus();
-    control.textContent = value;
-    control.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: value }));
-    return;
-  }
-  const prototype = control instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
-  Object.getOwnPropertyDescriptor(prototype, "value")?.set.call(control, value);
-  control.dispatchEvent(new Event("input", { bubbles: true }));
-  control.dispatchEvent(new Event("change", { bubbles: true }));
+  return false;
 }
 
 function setStatus(message, level = "info") {
@@ -565,13 +559,6 @@ function isVisible(element) {
 
 function normalizeText(value = "") {
   return value.replace(/\s+/g, " ").trim();
-}
-
-function similar(left, right) {
-  const clean = (value) => normalizeText(value).toLocaleLowerCase().replace(/^[a-z]\.|^\d+\.|\s+/g, "");
-  const a = clean(left);
-  const b = clean(right);
-  return a === b || a.includes(b) || b.includes(a);
 }
 
 function clamp(value, min, max) {

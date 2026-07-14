@@ -1,6 +1,6 @@
 {
   "name": "Coursera Tool",
-  "description": "Automatically advances course videos and assists with Coursera assessments.",
+  "description": "Automatically advances Coursera course videos and optionally opens quizzes for manual completion.",
   "version": "2.0.0",
   "manifest_version": 3,
   "action": {
@@ -23,7 +23,6 @@
   "permissions": ["storage", "tabs", "scripting"],
   "host_permissions": [
     "https://coursera.org/*",
-    "https://*.coursera.org/*",
-    "https://generativelanguage.googleapis.com/*"
+    "https://*.coursera.org/*"
   ]
 }
